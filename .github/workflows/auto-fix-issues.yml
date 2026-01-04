@@ -1,0 +1,104 @@
+name: Auto Fix Issues with Claude
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  trigger-claude-agent:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[EXE]')) ||
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[UT]')) ||
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[PLAN]')) ||
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[TEST]')) ||
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[REFACTOR]')) ||
+      (github.event.action == 'opened' && contains(github.event.issue.title, '[DOC]'))
+
+    steps:
+      - name: Acknowledge Issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+            const title = context.payload.issue.title;
+
+            // Extract workflow tag
+            const tagMatch = title.match(/\[(EXE|UT|PLAN|TEST|REFACTOR|DOC)\]/);
+            const workflowTag = tagMatch ? tagMatch[1] : 'EXE';
+
+            // Add comment to acknowledge
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🤖 **Claude Agent Triggered**\n\n` +
+                    `Workflow Mode: **[${workflowTag}]**\n\n` +
+                    `This issue has been queued for autonomous fixing. ` +
+                    `The agent will:\n` +
+                    `- Analyze and implement the fix\n` +
+                    `- Run comprehensive tests\n` +
+                    `- Commit and push changes\n` +
+                    `- Document the solution\n` +
+                    `- Close this issue automatically\n\n` +
+                    `Status updates will be posted here.`
+            });
+
+            // Add label to track
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['claude-agent', `workflow-${workflowTag.toLowerCase()}`]
+            });
+
+      - name: Trigger Webhook
+        run: |
+          # This sends a webhook to your local Claude agent listener
+          # You'll need to expose your local endpoint using ngrok or similar
+          # Or use a cloud-hosted Claude agent service
+
+          WEBHOOK_URL="${{ secrets.CLAUDE_WEBHOOK_URL }}"
+
+          if [ -n "$WEBHOOK_URL" ]; then
+            curl -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "issue_number": "${{ github.event.issue.number }}",
+                "repository": "${{ github.repository }}",
+                "title": "${{ github.event.issue.title }}",
+                "body": "${{ github.event.issue.body }}",
+                "action": "fix_issue"
+              }'
+          else
+            echo "No webhook URL configured. Agent will be triggered manually."
+          fi
+
+  check-agent-request:
+    runs-on: ubuntu-latest
+    if: |
+      github.event.action == 'created' &&
+      github.event.comment.body == '/claude-fix'
+
+    steps:
+      - name: Trigger Agent on Command
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.issue.number;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🤖 Claude agent has been manually triggered for this issue.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['claude-agent']
+            });
